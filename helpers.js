@@ -10,7 +10,14 @@ const cleanupFiles = [];
 function cleanup() {
   for (const file of cleanupFiles) {
     if (fs.existsSync(file)) {
-      fs.unlinkSync(file);
+      for (let i = 0; i < 3; i++) {
+        try {
+          fs.unlinkSync(file);
+          break;
+        } catch (err) {
+          console.error(`try unlink#${i + 1} ${file}: ${err.toString()}`);
+        }
+      }
     }
   }
 }
@@ -121,14 +128,19 @@ async function writeFileStr(filepath, str) {
   await fsp.writeFile(filepath, str, "utf-8");
 }
 
+async function writeFileJson(filepath, obj) {
+  await writeFileStr(filepath, JSON.stringify(obj, null, 2));
+}
+
 async function readAsJson(filepath) {
   const buf = await fsp.readFile(filepath, "utf-8");
   return JSON.parse(buf);
 }
 
-function filenameToIdentifier(name) {
-  const base = path.basename(name);
-  return base.replace(/[^0-9a-zA-Z_]/g, "_");
+function filenameToIdentifier(fileName) {
+  const base = path.basename(fileName);
+  const name = base.substring(0, base.lastIndexOf("."));
+  return name.replace(/[^0-9a-zA-Z_]/g, "_");
 }
 
 function mainWrapper(func) {
@@ -148,10 +160,23 @@ function mainWrapper(func) {
 async function writeShaders(shaders, dir, type) {
   const definitions = [];
 
-  for (const { identifier, bytes } of shaders) {
+  for (const shader of shaders) {
+    const { identifier, bytes } = shader;
     const formatted = formatBytes(bytes);
+    let shaderTypes = "";
+
+    if (shader.shaderTypes) {
+      shaderTypes =
+        "\n" +
+        shader.shaderTypes
+          .split("\n")
+          .map((x) => (x.length ? `  ${x}` : ""))
+          .join("\n") +
+        "\n";
+    }
+
     definitions.push({
-      header: `  extern uint8_t g_${identifier}[ ${bytes.length} ];`,
+      header: `  extern uint8_t g_${identifier}[ ${bytes.length} ];\n${shaderTypes}`,
       impl: `uint8_t shaders::${type}::g_${identifier}[ ${bytes.length} ] = {
 ${formatted}
 };`,
@@ -183,6 +208,29 @@ async function withLimitNumCpu(jobs) {
   await Promise.all(promises);
 }
 
+async function fileExists(p) {
+  await fsp.stat(p);
+  return p;
+}
+
+async function findProgram(program) {
+  if (!program.endsWith(".exe")) {
+    program += ".exe";
+  }
+  const PATH = process.env.path
+    .split(";")
+    .filter((x) => x)
+    .map((p) => path.join(p, program));
+  const task = await Promise.allSettled(PATH.map(fileExists));
+  const paths = task
+    .filter((x) => x.status === "fulfilled")
+    .map((x) => x.value);
+  if (!paths.length) {
+    return null;
+  }
+  return paths[0];
+}
+
 module.exports = {
   cleanup,
   tmpFile,
@@ -193,8 +241,10 @@ module.exports = {
   readAsText,
   mainWrapper,
   writeFileStr,
+  writeFileJson,
   filenameToIdentifier,
   withLimitNumCpu,
   writeShaders,
   formatBytes,
+  findProgram,
 };

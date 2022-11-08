@@ -36,6 +36,7 @@ async function genSpirv(inputPath, type) {
     "-o",
     tmpOutput,
   ]);
+
   if (spirvCross) {
     const reflectTmpOut = tmpFile(".json");
     const spirvCrossOut = await spawnChildProcess(spirvCross, [
@@ -50,6 +51,7 @@ async function genSpirv(inputPath, type) {
     const data = await readAsJson(reflectTmpOut, "utf-8");
     console.log(`tmp file contents: %s`, JSON.stringify(data, null, 2));
   }
+
   const bytes = await readAsCppBytesArray(tmpOutput);
   shaders.push({ identifier, bytes });
   console.log(`spirv: ${inputPath} -> ${identifier}`);

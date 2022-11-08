@@ -1,42 +1,33 @@
-const {
-  mainWrapper,
-  tmpFile,
-  spawnChildProcess,
-  resolveTool,
-  filenameToIdentifier,
-  withLimitNumCpu,
-  writeShaders,
-  readAsCppBytesArray,
-} = require("./helpers");
+const helpers = require("./helpers");
+const { reflectHLSLShader } = require("./reflect-hlsl");
 
-const fxc = resolveTool({ name: "fxc" });
-const dxc = resolveTool({ name: "dxc" });
+const fxc = helpers.resolveTool({ name: "fxc" });
+const dxc = helpers.resolveTool({ name: "dxc" });
 
-async function compileNew(tmpOutput, inputPath, type) {
+async function compileNew(tmpOutput, inputPath, profile) {
   console.log("compiling with dxc");
-  await spawnChildProcess(dxc, [
-    "-Od", // Disable optimizations
+  await helpers.spawnChildProcess(dxc, [
     "-Zi", // Enable debug information
     "-Ges", // Enable strict mode
     "-WX", // Treat warnings as errors
     inputPath,
     "-T",
-    type,
+    profile,
     "-Fo",
     tmpOutput,
   ]);
 }
 
-async function compileOld(tmpOutput, inputPath, type) {
+async function compileOld(tmpOutput, inputPath, profile) {
   console.log("compiling with fxc");
-  await spawnChildProcess(fxc, [
+  await helpers.spawnChildProcess(fxc, [
     "/Od", // Disable optimizations
     "/Zi", // Enable debug information
     "/Ges", // Enable strict mode
     "/WX", // Treat warnings as errors
     inputPath,
     "/T",
-    type,
+    profile,
     "/Fo",
     tmpOutput,
   ]);
@@ -44,39 +35,31 @@ async function compileOld(tmpOutput, inputPath, type) {
 
 const shaders = [];
 
-async function genCso(inputPath, version) {
-  const splitPath = inputPath.split(".");
+async function genCSO(inputPath, version) {
+  const { profile, identifier, shaderTypes } = await reflectHLSLShader(
+    inputPath,
+    version
+  );
 
-  if (splitPath.length < 3 || splitPath[splitPath.length - 1] != "hlsl") {
-    throw new Error(
-      `invalid path '${inputPath}'. should be like 'some-shader.vs.hlsl'`
-    );
-  }
-
-  const type =
-    splitPath[splitPath.length - 2] + "_" + version.replace(".", "_");
-
-  const tmpOutput = tmpFile(".cso");
+  const tmpOutput = helpers.tmpFile(".cso");
 
   if (+version > 5.5) {
-    await compileNew(tmpOutput, inputPath, type);
+    throw new Error("not yet supported... \\_@-@_/");
+    await compileNew(tmpOutput, inputPath, profile);
   } else {
-    await compileOld(tmpOutput, inputPath, type);
+    await compileOld(tmpOutput, inputPath, profile);
   }
 
-  const bytes = await readAsCppBytesArray(tmpOutput);
-  const identifier = filenameToIdentifier(
-    inputPath.substr(0, inputPath.lastIndexOf("."))
-  );
-  shaders.push({ identifier, bytes });
+  const bytes = await helpers.readAsCppBytesArray(tmpOutput);
+  shaders.push({ identifier, bytes, shaderTypes });
   console.log(`cso: ${inputPath} -> ${identifier}`);
 }
 
-mainWrapper(async (args) => {
+helpers.mainWrapper(async (args) => {
   const version = args[0];
   const dir = args[1];
   const files = args.slice(2);
 
-  await withLimitNumCpu(files.map((file) => () => genCso(file, version)));
-  await writeShaders(shaders, dir, "dx");
+  await helpers.withLimitNumCpu(files.map((file) => () => genCSO(file, version)));
+  await helpers.writeShaders(shaders, dir, "dx");
 });
