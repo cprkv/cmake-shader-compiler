@@ -12,10 +12,10 @@ module.exports.reflectHLSLShader = async function reflectHLSLShader(
   const profile = versionToProfile(inputPath, version);
   const identifier = helpers.filenameToIdentifier(inputPath);
   const shaderReflection = await getShaderReflection(inputPath, profile);
-  helpers.writeFileJson(
-    path.join(inputPath, "..", identifier + ".json"),
-    shaderReflection
-  );
+  // helpers.writeFileJson(
+  //   path.join(inputPath, "..", identifier + ".json"),
+  //   shaderReflection
+  // );
   const typeContainer = toTypeContainer(shaderReflection);
   const shaderTypes = typeContainer.dump();
   await checkShader(inputPath, shaderTypes, typeContainer.dumpChecks());
