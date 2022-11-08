@@ -53,7 +53,7 @@ function versionToProfile(inputPath, version) {
 async function checkShader(fileName, shaderTypes, shaderChecks) {
   try {
     const checkSource = checkProgramSource(shaderTypes, shaderChecks);
-    console.log(checkSource);
+    // console.log(checkSource);
     const checkFile = helpers.tmpFile(".cpp");
     const checkExe = helpers.tmpFile(".exe");
     await helpers.writeFileStr(checkFile, checkSource);

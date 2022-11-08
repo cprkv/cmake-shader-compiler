@@ -10,7 +10,7 @@ const cleanupFiles = [];
 function cleanup() {
   for (const file of cleanupFiles) {
     if (fs.existsSync(file)) {
-      console.log(`removing tmp file: ${file}`);
+      // console.log(`removing tmp file: ${file}`);
       for (let i = 0; i < 3; i++) {
         try {
           fs.unlinkSync(file);
@@ -56,7 +56,7 @@ function resolveTool({ name, isOptional }) {
   for (const toolDir of toolsDirs) {
     const p = path.join(toolDir, binName);
     if (fs.existsSync(p)) {
-      console.log(`found suitable tool ${p}`);
+      // console.log(`found suitable tool ${p}`);
       return p;
     }
   }

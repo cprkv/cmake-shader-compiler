@@ -5,7 +5,7 @@ const fxc = helpers.resolveTool({ name: "fxc" });
 const dxc = helpers.resolveTool({ name: "dxc" });
 
 async function compileNew(tmpOutput, inputPath, profile) {
-  console.log("compiling with dxc");
+  // console.log("compiling with dxc");
   await helpers.spawnChildProcess(dxc, [
     "-Zi", // Enable debug information
     "-Ges", // Enable strict mode
@@ -19,7 +19,7 @@ async function compileNew(tmpOutput, inputPath, profile) {
 }
 
 async function compileOld(tmpOutput, inputPath, profile) {
-  console.log("compiling with fxc");
+  // console.log("compiling with fxc");
   await helpers.spawnChildProcess(fxc, [
     "/Od", // Disable optimizations
     "/Zi", // Enable debug information
