@@ -10,6 +10,7 @@ const cleanupFiles = [];
 function cleanup() {
   for (const file of cleanupFiles) {
     if (fs.existsSync(file)) {
+      console.log(`removing tmp file: ${file}`);
       for (let i = 0; i < 3; i++) {
         try {
           fs.unlinkSync(file);
@@ -187,6 +188,10 @@ ${formatted}
     path.join(dir, "shaders.hpp"),
     `#pragma once
 #include <cstdint>
+
+#if __has_include("shaders-pre.hpp")
+  #include "shaders-pre.hpp"
+#endif
 
 namespace shaders::${type} {
 ${definitions.map(({ header }) => header).join("\n")}

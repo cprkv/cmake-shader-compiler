@@ -12,6 +12,10 @@ module.exports.reflectHLSLShader = async function reflectHLSLShader(
   const profile = versionToProfile(inputPath, version);
   const identifier = helpers.filenameToIdentifier(inputPath);
   const shaderReflection = await getShaderReflection(inputPath, profile);
+  helpers.writeFileJson(
+    path.join(inputPath, "..", identifier + ".json"),
+    shaderReflection
+  );
   const typeContainer = toTypeContainer(shaderReflection);
   const shaderTypes = typeContainer.dump();
   await checkShader(inputPath, shaderTypes, typeContainer.dumpChecks());
@@ -49,6 +53,7 @@ function versionToProfile(inputPath, version) {
 async function checkShader(fileName, shaderTypes, shaderChecks) {
   try {
     const checkSource = checkProgramSource(shaderTypes, shaderChecks);
+    console.log(checkSource);
     const checkFile = helpers.tmpFile(".cpp");
     const checkExe = helpers.tmpFile(".exe");
     await helpers.writeFileStr(checkFile, checkSource);
@@ -79,25 +84,33 @@ class PlainStruct {
     this.size = size;
   }
 
-  addMember(type, name, size, offset) {
-    this.members.push({ type, name, size, offset });
+  addMember({ type, name, size, offset, elements }) {
+    this.members.push({ type, name, size, offset, elements });
   }
 
   dump() {
     const memberStrings = [];
 
-    for (const { type, name, size, offset } of this.members) {
-      const sizeStr = size || size === 0 ? `${size} bytes` : ``;
-      const offsetStr = offset || offset === 0 ? ` offset: ${offset}` : ``;
-      memberStrings.push(`  ${type} ${name};   // ${sizeStr} ${offsetStr}`);
+    for (const { type, name, size, offset, elements } of this.members) {
+      // const sizeStr = size || size === 0 ? `${size} bytes` : ``;
+      // const offsetStr = offset || offset === 0 ? ` offset: ${offset}` : ``;
+      // const comment = `  // ${sizeStr} ${offsetStr}`;
+      const comment = ``;
+      let arraySuffix = "";
+      if (elements) {
+        arraySuffix = `[${elements}]`;
+      }
+      memberStrings.push(`  ${type} ${name}${arraySuffix};${comment}`);
     }
 
-    let size = "";
-    if (this.size || this.size === 0) {
-      size = `// ${this.size} bytes`;
-    }
+    let sizeComment = "";
+    // if (this.size || this.size === 0) {
+    //   sizeComment = ` // ${this.size} bytes`;
+    // }
 
-    return [`struct ${this.name} { ${size}`, ...memberStrings, "};"].join("\n");
+    return [`struct ${this.name} {${sizeComment}`, ...memberStrings, "};"].join(
+      "\n"
+    );
   }
 
   dumpChecks() {
@@ -122,6 +135,40 @@ class PlainStruct {
   }
 }
 
+function embedDXTypes(src) {
+  return `
+#pragma pack(push)
+#pragma pack(16)
+
+#ifndef DIRECTX_TYPE_INTRO
+#define DIRECTX_TYPE_INTRO
+  using dword = unsigned int;
+  struct float2 { float x; float y; };
+  struct float3 { float x; float y; float z; };
+  struct float4 { float x; float y; float z; float w; };
+
+  struct float2x2 { float2 x; float2 _pad; float2 y; };
+  struct float3x3 { float3 x; float _pad1; float3 y; float _pad2; float3 z; };
+  struct float4x4 { float m[4][4]; };
+#endif
+
+#ifndef DIRECTX_TYPE_CHECKS
+#define DIRECTX_TYPE_CHECKS
+  static_assert(sizeof(dword) == 4, "directx structure size should match");
+  static_assert(sizeof(float2) == 8, "directx structure size should match");
+  static_assert(sizeof(float3) == 12, "directx structure size should match");
+  static_assert(sizeof(float4) == 16, "directx structure size should match");
+
+  static_assert(sizeof(float2x2) == 24, "directx structure size should match");
+  static_assert(sizeof(float3x3) == 44, "directx structure size should match");
+  static_assert(sizeof(float4x4) == 64, "directx structure size should match");
+#endif
+
+  ${src}
+
+#pragma pack(pop)`;
+}
+
 class TypeContainer {
   #types = new Map();
 
@@ -143,10 +190,12 @@ class TypeContainer {
 
   dump() {
     const types = [...this.#types.values()];
-    return types
-      .sort((a, b) => b.depth - a.depth)
-      .map(({ type }) => type.dump() + "\n")
-      .join("\n");
+    return embedDXTypes(
+      types
+        .sort((a, b) => b.depth - a.depth)
+        .map(({ type }) => type.dump() + "\n")
+        .join("\n")
+    );
   }
 
   dumpChecks() {
@@ -169,16 +218,20 @@ function toTypeContainer(shaderReflection) {
       continue;
     }
 
+    if (node.size && node.typeDesc && node.typeDesc.elements) {
+      node.size /= node.typeDesc.elements;
+    }
     const size = or0(node.size, (node.typeDesc && node.typeDesc.size) || null);
     const struct = new PlainStruct(name, size);
 
     for (const variable of node.children) {
-      struct.addMember(
-        variable.typeDesc.name,
-        variable.name,
-        variable.size,
-        or0(variable.startOffset, variable.typeDesc.offset)
-      );
+      struct.addMember({
+        type: variable.typeDesc.name,
+        name: variable.name,
+        size: variable.size,
+        offset: or0(variable.startOffset, variable.typeDesc.offset),
+        elements: variable.typeDesc.elements,
+      });
       if (variable.typeDesc.class == "STRUCT") {
         typeQueue.push({ node: variable, depth: currentDepth });
       }
@@ -215,10 +268,6 @@ function checkProgramSource(structs, checks) {
     #include <stdlib.h>
     #include <stddef.h>
 
-    struct float2 { float x; float y; };
-    struct float3 { float x; float y; float z; };
-    struct float4 { float x; float y; float z; float w; };
-
     ${structs}
 
     bool checks_failed = false;
@@ -226,7 +275,8 @@ function checkProgramSource(structs, checks) {
     #define check_eq(a, b) \\
       if ((a) != (b)) { \\
         printf("\\ncheck "#a" == "#b" failed!\\n"); \\
-        printf("  "#a" = %u\\n", (unsigned int)(a)); \\
+        printf("  actual:   %u\\n", (unsigned int)(a)); \\
+        printf("  expected: %u\\n", (unsigned int)(b)); \\
         checks_failed = true; \\
       } \\
 
