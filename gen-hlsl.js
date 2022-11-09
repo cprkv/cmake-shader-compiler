@@ -1,5 +1,6 @@
 const helpers = require("./helpers");
-const { reflectHLSLShader } = require("./reflect-hlsl");
+const path = require("path");
+const { reflectHLSLShaders } = require("./reflect-hlsl");
 
 const fxc = helpers.resolveTool({ name: "fxc" });
 const dxc = helpers.resolveTool({ name: "dxc" });
@@ -33,14 +34,7 @@ async function compileOld(tmpOutput, inputPath, profile) {
   ]);
 }
 
-const shaders = [];
-
-async function genCSO(inputPath, version) {
-  const { profile, identifier, shaderTypes } = await reflectHLSLShader(
-    inputPath,
-    version
-  );
-
+async function genCSO({ inputPath, version, profile, identifier }) {
   const tmpOutput = helpers.tmpFile(".cso");
 
   if (+version > 5.5) {
@@ -51,15 +45,29 @@ async function genCSO(inputPath, version) {
   }
 
   const bytes = await helpers.readAsCppBytesArray(tmpOutput);
-  shaders.push({ identifier, bytes, shaderTypes });
   console.log(`cso: ${inputPath} -> ${identifier}`);
+  return { identifier, bytes };
+}
+
+async function genTypes(files, version, dir, namespace) {
+  const { shaderInfos, typesFile } = await reflectHLSLShaders(
+    files,
+    version,
+    namespace
+  );
+  await helpers.writeFileStr(path.join(dir, "shader-types.hpp"), typesFile);
+  return shaderInfos;
 }
 
 helpers.mainWrapper(async (args) => {
   const version = args[0];
   const dir = args[1];
-  const files = args.slice(2);
+  const namespace = args[2];
+  const files = args.slice(3);
 
-  await helpers.withLimitNumCpu(files.map((file) => () => genCSO(file, version)));
-  await helpers.writeShaders(shaders, dir, "dx");
+  const shaderInfos = await genTypes(files, version, dir, namespace);
+  const shaders = await helpers.withLimitNumCpu(
+    shaderInfos.map((shaderInfo) => () => genCSO(shaderInfo))
+  );
+  await helpers.writeShaders(shaders, dir, "dx", namespace);
 });

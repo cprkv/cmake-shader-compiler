@@ -46,9 +46,9 @@ macro(add_vk_shaders project src_dir)
     COMMAND ${csc_nodejs_executable}
     ARGS
       ${csc_generate_dir}/gen-spirv.js
-      Vulkan
-      ${src_dir}
-      ${vk_shader_files_in}
+        Vulkan
+        ${src_dir}
+        ${vk_shader_files_in}
     OUTPUT ${vk_shader_files_out}
     DEPENDS
       ${csc_generate_dir}/gen-spirv.js
@@ -57,9 +57,12 @@ macro(add_vk_shaders project src_dir)
   target_sources(${project} PRIVATE ${vk_shader_files_out})
 endmacro()
 
-macro(add_dx_shaders project src_dir version)
+macro(add_dx_shaders project src_dir version namespace)
   file(GLOB_RECURSE dx_shader_files_in ${src_dir}/*.hlsl)
-  set(dx_shader_files_out ${src_dir}/shaders.hpp ${src_dir}/shaders.cpp)
+  set(dx_shader_files_out
+    ${src_dir}/shader-types.hpp
+    ${src_dir}/shaders.hpp
+    ${src_dir}/shaders.cpp)
   message("add_dx_shaders(${project} ${src_dir})")
   message("  in:  ${dx_shader_files_in}")
   message("  out: ${dx_shader_files_out}")
@@ -67,9 +70,10 @@ macro(add_dx_shaders project src_dir version)
     COMMAND ${csc_nodejs_executable}
     ARGS
       ${csc_generate_dir}/gen-hlsl.js
-      ${version}
-      ${src_dir}
-      ${dx_shader_files_in}
+        ${version}
+        ${src_dir}
+        ${namespace}
+        ${dx_shader_files_in}
     OUTPUT ${dx_shader_files_out}
     DEPENDS
       ${csc_generate_dir}/gen-hlsl.js

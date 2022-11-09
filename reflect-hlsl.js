@@ -5,10 +5,41 @@ const hlslShaderReflector = helpers.resolveTool({
   name: "hlsl-shader-reflector",
 });
 
-module.exports.reflectHLSLShader = async function reflectHLSLShader(
-  inputPath,
-  version
-) {
+module.exports = { reflectHLSLShader, embedDXTypes, reflectHLSLShaders };
+
+async function reflectHLSLShaders(files, version, namespace) {
+  const shaderInfos = await helpers.withLimitNumCpu(
+    files.map((inputPath) => async () => {
+      const { profile, identifier, shaderTypes } = await reflectHLSLShader(
+        inputPath,
+        version
+      );
+      return { inputPath, version, profile, identifier, shaderTypes };
+    })
+  );
+
+  const types = embedDXTypes(
+    shaderInfos
+      .map((x) => x.shaderTypes)
+      .join("\n")
+      .split("\n")
+      .map((x) => `  ${x}`)
+      .join("\n")
+  );
+  const typesFile = `#pragma once
+
+#if __has_include("shader-types-pre.hpp")
+  #include "shader-types-pre.hpp"
+#endif
+
+namespace ${namespace} {
+${types}
+}`;
+
+  return { shaderInfos, typesFile };
+}
+
+async function reflectHLSLShader(inputPath, version) {
   const profile = versionToProfile(inputPath, version);
   const identifier = helpers.filenameToIdentifier(inputPath);
   const shaderReflection = await getShaderReflection(inputPath, profile);
@@ -21,7 +52,40 @@ module.exports.reflectHLSLShader = async function reflectHLSLShader(
   await checkShader(inputPath, shaderTypes, typeContainer.dumpChecks());
 
   return { profile, identifier, shaderTypes };
-};
+}
+
+function embedDXTypes(src) {
+  return `
+#pragma pack(push)
+#pragma pack(16)
+
+#ifndef DIRECTX_TYPE_INTRO
+#define DIRECTX_TYPE_INTRO
+  using dword = unsigned int;
+  struct float2 { float x; float y; };
+  struct float3 { float x; float y; float z; };
+  struct float4 { float x; float y; float z; float w; };
+
+  struct float2x2 { float2 x; float2 _pad; float2 y; };
+  struct float3x3 { float3 x; float _pad1; float3 y; float _pad2; float3 z; };
+  struct float4x4 { float m[4][4]; };
+#endif
+
+#ifndef DIRECTX_TYPE_CHECKS
+#define DIRECTX_TYPE_CHECKS
+  static_assert(sizeof(dword) == 4, "directx structure size should match");
+  static_assert(sizeof(float2) == 8, "directx structure size should match");
+  static_assert(sizeof(float3) == 12, "directx structure size should match");
+  static_assert(sizeof(float4) == 16, "directx structure size should match");
+
+  static_assert(sizeof(float2x2) == 24, "directx structure size should match");
+  static_assert(sizeof(float3x3) == 44, "directx structure size should match");
+  static_assert(sizeof(float4x4) == 64, "directx structure size should match");
+#endif
+
+${src}
+#pragma pack(pop)`;
+}
 
 async function getShaderReflection(filePath, profile) {
   const tmpOutput = helpers.tmpFile(".json");
@@ -52,7 +116,10 @@ function versionToProfile(inputPath, version) {
 
 async function checkShader(fileName, shaderTypes, shaderChecks) {
   try {
-    const checkSource = checkProgramSource(shaderTypes, shaderChecks);
+    const checkSource = checkProgramSource(
+      embedDXTypes(shaderTypes),
+      shaderChecks
+    );
     // console.log(checkSource);
     const checkFile = helpers.tmpFile(".cpp");
     const checkExe = helpers.tmpFile(".exe");
@@ -135,40 +202,6 @@ class PlainStruct {
   }
 }
 
-function embedDXTypes(src) {
-  return `
-#pragma pack(push)
-#pragma pack(16)
-
-#ifndef DIRECTX_TYPE_INTRO
-#define DIRECTX_TYPE_INTRO
-  using dword = unsigned int;
-  struct float2 { float x; float y; };
-  struct float3 { float x; float y; float z; };
-  struct float4 { float x; float y; float z; float w; };
-
-  struct float2x2 { float2 x; float2 _pad; float2 y; };
-  struct float3x3 { float3 x; float _pad1; float3 y; float _pad2; float3 z; };
-  struct float4x4 { float m[4][4]; };
-#endif
-
-#ifndef DIRECTX_TYPE_CHECKS
-#define DIRECTX_TYPE_CHECKS
-  static_assert(sizeof(dword) == 4, "directx structure size should match");
-  static_assert(sizeof(float2) == 8, "directx structure size should match");
-  static_assert(sizeof(float3) == 12, "directx structure size should match");
-  static_assert(sizeof(float4) == 16, "directx structure size should match");
-
-  static_assert(sizeof(float2x2) == 24, "directx structure size should match");
-  static_assert(sizeof(float3x3) == 44, "directx structure size should match");
-  static_assert(sizeof(float4x4) == 64, "directx structure size should match");
-#endif
-
-  ${src}
-
-#pragma pack(pop)`;
-}
-
 class TypeContainer {
   #types = new Map();
 
@@ -190,12 +223,10 @@ class TypeContainer {
 
   dump() {
     const types = [...this.#types.values()];
-    return embedDXTypes(
-      types
-        .sort((a, b) => b.depth - a.depth)
-        .map(({ type }) => type.dump() + "\n")
-        .join("\n")
-    );
+    return types
+      .sort((a, b) => b.depth - a.depth)
+      .map(({ type }) => type.dump() + "\n")
+      .join("\n");
   }
 
   dumpChecks() {

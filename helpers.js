@@ -158,27 +158,18 @@ function mainWrapper(func) {
     });
 }
 
-async function writeShaders(shaders, dir, type) {
+async function writeShaders(shaders, dir, type, namespace) {
   const definitions = [];
+
+  namespace = namespace || `shaders::${type}`
 
   for (const shader of shaders) {
     const { identifier, bytes } = shader;
     const formatted = formatBytes(bytes);
-    let shaderTypes = "";
-
-    if (shader.shaderTypes) {
-      shaderTypes =
-        "\n" +
-        shader.shaderTypes
-          .split("\n")
-          .map((x) => (x.length ? `  ${x}` : ""))
-          .join("\n") +
-        "\n";
-    }
 
     definitions.push({
-      header: `  extern uint8_t g_${identifier}[ ${bytes.length} ];\n${shaderTypes}`,
-      impl: `uint8_t shaders::${type}::g_${identifier}[ ${bytes.length} ] = {
+      header: `  extern uint8_t g_${identifier}[ ${bytes.length} ];`,
+      impl: `uint8_t ${namespace}::g_${identifier}[ ${bytes.length} ] = {
 ${formatted}
 };`,
     });
@@ -189,13 +180,9 @@ ${formatted}
     `#pragma once
 #include <cstdint>
 
-#if __has_include("shaders-pre.hpp")
-  #include "shaders-pre.hpp"
-#endif
-
-namespace shaders::${type} {
+namespace ${namespace} {
 ${definitions.map(({ header }) => header).join("\n")}
-} // namespace shaders::${type}
+}
 `
   );
   await writeFileStr(
@@ -207,10 +194,10 @@ ${definitions.map(({ impl }) => impl).join("\n\n")}
   );
 }
 
-async function withLimitNumCpu(jobs) {
+function withLimitNumCpu(jobs) {
   const limit = pLimit(os.cpus().length);
   const promises = jobs.map((job) => limit(job));
-  await Promise.all(promises);
+  return Promise.all(promises);
 }
 
 async function fileExists(p) {
