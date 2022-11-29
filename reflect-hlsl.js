@@ -8,15 +8,21 @@ const hlslShaderReflector = helpers.resolveTool({
 module.exports = { reflectHLSLShader, embedDXTypes, reflectHLSLShaders };
 
 async function reflectHLSLShaders(files, version, namespace) {
-  const shaderInfos = await helpers.withLimitNumCpu(
+  let shaderInfos = await helpers.withLimitNumCpu(
     files.map((inputPath) => async () => {
-      const { profile, identifier, shaderTypes } = await reflectHLSLShader(
+      const reflected = await reflectHLSLShader(
         inputPath,
         version
       );
+      if (!reflected) {
+        return null;
+      }
+      const { profile, identifier, shaderTypes } = reflected;
       return { inputPath, version, profile, identifier, shaderTypes };
     })
   );
+
+  shaderInfos = shaderInfos.filter(x => x);
 
   const types = embedDXTypes(
     shaderInfos
@@ -36,11 +42,19 @@ namespace ${namespace} {
 ${types}
 }`;
 
+  if (shaderInfos.some(x => !x)) {
+    throw new Error("some of shader infos is null");
+  }
+
   return { shaderInfos, typesFile };
 }
 
 async function reflectHLSLShader(inputPath, version) {
   const profile = versionToProfile(inputPath, version);
+  if (!profile) {
+    return null;
+  }
+
   const identifier = helpers.filenameToIdentifier(inputPath);
   const shaderReflection = await getShaderReflection(inputPath, profile);
   // helpers.writeFileJson(
@@ -104,9 +118,10 @@ function versionToProfile(inputPath, version) {
   const splitPath = inputPath.split(".");
 
   if (splitPath.length < 3 || splitPath[splitPath.length - 1] != "hlsl") {
-    throw new Error(
-      `invalid path '${inputPath}'. should be like 'some-shader.vs.hlsl'`
-    );
+    //throw new Error(
+    //  `invalid path '${inputPath}'. should be like 'some-shader.vs.hlsl'`
+    //);
+    return null;
   }
 
   const profile_version = version.replace(".", "_");
